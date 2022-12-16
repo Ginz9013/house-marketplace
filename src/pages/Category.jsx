@@ -1,4 +1,6 @@
+
 import { useState, useEffect } from "react"
+import { useParams } from "react-router-dom"
 import {
   collection,
   getDocs,
@@ -13,9 +15,11 @@ import { toast } from "react-toastify"
 import ListingItem from "../components/ListingItem"
 import Spinner from "../components/Spinner"
 
-function Offers() {
+function Category() {
   const [listings, setListings] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  const params = useParams()
 
   useEffect(() => {
     const fetchListings = async () => {
@@ -26,7 +30,7 @@ function Offers() {
         // Create a query
         const q = query(
           listingsRef,
-          where('offer', '==', true),
+          where('type', '==', params.categoryName),
           orderBy('timestamp', 'desc'),
           limit(10)
         )
@@ -52,13 +56,16 @@ function Offers() {
     }
 
     fetchListings()
-  }, [])
+  }, [params.categoryName])
 
   return (
     <div className="category">
       <header>
         <p className="pageHeader">
-          Offers
+          {params.categoryName === 'rent'
+            ? 'Places for rent'
+            : 'Places for sale'
+          }
         </p>
       </header>
 
@@ -78,10 +85,10 @@ function Offers() {
         </main>
         </>
       ) : (
-        <p>There are no current offers</p>
+        <p>No listings for {params.categoryName} </p>
       )}
     </div>
   )
 }
 
-export default Offers
+export default Category
