@@ -9,7 +9,6 @@ import {
   collection,
   query,
   where,
-  orderBy,
 } from "firebase/firestore"
 import { db } from "../firebase.config"
 import { useNavigate } from "react-router-dom"
@@ -108,6 +107,9 @@ function Profile() {
     }
   }
 
+  const onEdit = (listingId) => navigate(`/edit-listing/${listingId}`)
+
+
   return <div className="profile">
     <header className="profileHeader">
       <p className="pageHeader">My Profile</p>
@@ -169,6 +171,7 @@ function Profile() {
                 listing={listing.data}
                 id={listing.id}
                 onDelete={() => onDelete(listing.id)}
+                onEdit={() => onEdit(listing.id)}
               />
             ))}
           </ul>

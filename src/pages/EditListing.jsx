@@ -1,24 +1,23 @@
-import { useState, useEffect, useRef } from "react"
-import { getAuth, onAuthStateChanged } from "firebase/auth"
+import { useState, useEffect, useRef } from 'react'
+import { getAuth, onAuthStateChanged } from 'firebase/auth'
 import {
   getStorage,
   ref,
   uploadBytesResumable,
-  getDownloadURL
-} from "firebase/storage"
-import { addDoc, collection, serverTimestamp } from "firebase/firestore"
-import { db } from "../firebase.config"
+  getDownloadURL,
+} from 'firebase/storage'
+import { doc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore'
+import { db } from '../firebase.config'
+import { useNavigate, useParams } from 'react-router-dom'
+import { toast } from 'react-toastify'
+import { v4 as uuidv4 } from 'uuid'
+import Spinner from '../components/Spinner'
 
-import { useNavigate } from "react-router-dom"
-import { toast } from "react-toastify"
-import { v4 as uuidv4 } from "uuid"
-
-import Spinner from "../components/Spinner"
-
-function CreateListing() {
+function EditListing() {
   // eslint-disable-next-line
-  const [geoLocationEnabled, setGeoLocationEnabled] = useState(true)
+  const [geolocationEnabled, setGeolocationEnabled] = useState(true)
   const [loading, setLoading] = useState(false)
+  const [listing, setListing] = useState(false)
   const [formData, setFormData] = useState({
     type: 'rent',
     name: '',
@@ -32,7 +31,7 @@ function CreateListing() {
     discountedPrice: 0,
     images: {},
     latitude: 0,
-    longitude: 0
+    longitude: 0,
   })
 
   const {
@@ -49,20 +48,46 @@ function CreateListing() {
     images,
     latitude,
     longitude,
-   } = formData
+  } = formData
 
   const auth = getAuth()
   const navigate = useNavigate()
+  const params = useParams()
   const isMounted = useRef(true)
 
+  // Redirect if listing is not user's
+  useEffect(() => {
+    if (listing && listing.userRef !== auth.currentUser.uid) {
+      toast.error('You can not edit that listing')
+      navigate('/')
+    }
+  })
+
+  // Fetch listing to edit
+  useEffect(() => {
+    setLoading(true)
+    const fetchListing = async () => {
+      const docRef = doc(db, 'listings', params.listingId)
+      const docSnap = await getDoc(docRef)
+      if (docSnap.exists()) {
+        setListing(docSnap.data())
+        setFormData({ ...docSnap.data(), address: docSnap.data().location })
+        setLoading(false)
+      } else {
+        navigate('/')
+        toast.error('Listing does not exist')
+      }
+    }
+
+    fetchListing()
+  }, [params.listingId, navigate])
+
+  // Sets userRef to logged in user
   useEffect(() => {
     if (isMounted) {
       onAuthStateChanged(auth, (user) => {
         if (user) {
-          setFormData({
-            ...formData,
-            userRef: user.uid
-          })
+          setFormData({ ...formData, userRef: user.uid })
         } else {
           navigate('/sign-in')
         }
@@ -72,11 +97,13 @@ function CreateListing() {
     return () => {
       isMounted.current = false
     }
-    // eslint-disable-next-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted])
 
   const onSubmit = async (e) => {
     e.preventDefault()
+
+    setLoading(true)
 
     if (discountedPrice >= regularPrice) {
       setLoading(false)
@@ -93,62 +120,61 @@ function CreateListing() {
     let geolocation = {}
     let location
 
-    if (geoLocationEnabled) {
-      const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${address}&key=${process.env.REACT_APP_GEOCODE_API_KEY}`)
+    if (geolocationEnabled) {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?address=${address}&key=${process.env.REACT_APP_GEOCODE_API_KEY}`
+      )
 
-      const data = await res.json()
+      const data = await response.json()
 
-      geolocation.lat = data.results[0]?.geometry.location.lat
-      geolocation.lng = data.results[0]?.geometry.location.lng
+      geolocation.lat = data.results[0]?.geometry.location.lat ?? 0
+      geolocation.lng = data.results[0]?.geometry.location.lng ?? 0
 
       location =
         data.status === 'ZERO_RESULTS'
           ? undefined
           : data.results[0]?.formatted_address
-          
 
       if (location === undefined || location.includes('undefined')) {
         setLoading(false)
         toast.error('Please enter a correct address')
         return
       }
-      
     } else {
       geolocation.lat = latitude
       geolocation.lng = longitude
-      location = address
     }
 
-    // Storage image in firebase
+    // Store image in firebase
     const storeImage = async (image) => {
       return new Promise((resolve, reject) => {
         const storage = getStorage()
         const fileName = `${auth.currentUser.uid}-${image.name}-${uuidv4()}`
 
-        const storageRef = ref(storage, 'images/' + fileName);
+        const storageRef = ref(storage, 'images/' + fileName)
 
         const uploadTask = uploadBytesResumable(storageRef, image)
 
-        uploadTask.on('state_changed', 
+        uploadTask.on(
+          'state_changed',
           (snapshot) => {
-          
-            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            const progress =
+              (snapshot.bytesTransferred / snapshot.totalBytes) * 100
             console.log('Upload is ' + progress + '% done')
-            // eslint-disable-next-line default-case
             switch (snapshot.state) {
               case 'paused':
-                console.log('Upload is paused');
-                break;
+                console.log('Upload is paused')
+                break
               case 'running':
-                console.log('Upload is running');
-                break;
+                console.log('Upload is running')
+                break
               default:
                 break
             }
-          }, 
+          },
           (error) => {
             reject(error)
-          }, 
+          },
           () => {
             // Handle successful uploads on complete
             // For instance, get the download URL: https://firebasestorage.googleapis.com/...
@@ -164,7 +190,7 @@ function CreateListing() {
       [...images].map((image) => storeImage(image))
     ).catch(() => {
       setLoading(false)
-      toast.error('Images not upload')
+      toast.error('Images not uploaded')
       return
     })
 
@@ -172,16 +198,17 @@ function CreateListing() {
       ...formData,
       imgUrls,
       geolocation,
-      timestamp: serverTimestamp()
+      timestamp: serverTimestamp(),
     }
 
+    formDataCopy.location = address
     delete formDataCopy.images
     delete formDataCopy.address
-    location && (formDataCopy.location = location)
     !formDataCopy.offer && delete formDataCopy.discountedPrice
-    
-    const docRef = await addDoc(collection(db, 'listings'), formDataCopy)
 
+    // Update listing
+    const docRef = doc(db, 'listings', params.listingId)
+    await updateDoc(docRef, formDataCopy)
     setLoading(false)
     toast.success('Listing saved')
     navigate(`/category/${formDataCopy.type}/${docRef.id}`)
@@ -193,17 +220,15 @@ function CreateListing() {
     if (e.target.value === 'true') {
       boolean = true
     }
-
     if (e.target.value === 'false') {
       boolean = false
     }
-
 
     // Files
     if (e.target.files) {
       setFormData((prevState) => ({
         ...prevState,
-        images: e.target.files
+        images: e.target.files,
       }))
     }
 
@@ -211,7 +236,7 @@ function CreateListing() {
     if (!e.target.files) {
       setFormData((prevState) => ({
         ...prevState,
-        [e.target.id]: boolean ?? e.target.value
+        [e.target.id]: boolean ?? e.target.value,
       }))
     }
   }
@@ -221,30 +246,29 @@ function CreateListing() {
   }
 
   return (
-    <div className="profile">
+    <div className='profile'>
       <header>
-        <p className="pageHeader">Create a Listing</p>
+        <p className='pageHeader'>Edit Listing</p>
       </header>
 
       <main>
         <form onSubmit={onSubmit}>
-          <label className="formLabel">Sell / Rent</label>
-          <div className="formButtons">
+          <label className='formLabel'>Sell / Rent</label>
+          <div className='formButtons'>
             <button
-              type="button"
-              className={ type === 'sale' ? 'formButtonActive' : 'formButton'}
-              id="type"
-              value="sale"
+              type='button'
+              className={type === 'sale' ? 'formButtonActive' : 'formButton'}
+              id='type'
+              value='sale'
               onClick={onMutate}
             >
               Sell
             </button>
-
             <button
-              type="button"
-              className={ type === 'rent' ? 'formButtonActive' : 'formButton'}
-              id="type"
-              value="rent"
+              type='button'
+              className={type === 'rent' ? 'formButtonActive' : 'formButton'}
+              id='type'
+              value='rent'
               onClick={onMutate}
             >
               Rent
@@ -354,7 +378,7 @@ function CreateListing() {
             required
           />
 
-          {!geoLocationEnabled && (
+          {!geolocationEnabled && (
             <div className='formLatLng flex'>
               <div>
                 <label className='formLabel'>Latitude</label>
@@ -450,9 +474,8 @@ function CreateListing() {
             multiple
             required
           />
-
-          <button className="primaryButton createListingButton">
-            Create Listing
+          <button type='submit' className='primaryButton createListingButton'>
+            Edit Listing
           </button>
         </form>
       </main>
@@ -460,4 +483,4 @@ function CreateListing() {
   )
 }
 
-export default CreateListing
+export default EditListing
